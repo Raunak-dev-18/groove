@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@theme {
+  /* Groove design system — neo-retro minimalism, electric indigo palette */
+  --color-brand: #1800ac; /* Electric Indigo — primary page background */
+  --color-brand-deep: #18175c; /* Deep Indigo — dark purple supporting surfaces */
+  --color-panel: #0a0503; /* Near Black — main dark panels, player surfaces */
+  --color-cream: #f8e6bc; /* Warm Cream — artwork placeholders, highlighted cards */
+  --color-mist: #cbd3da; /* Cool Mist — secondary cards, light surfaces */
+  --color-ctlgrey: #5d5d5d; /* Control Grey — nav bars, muted controls */
+  --color-midgrey: #999999; /* Mid Grey — secondary icons, subdued details */
+  --color-softwhite: #f4f2ed; /* Soft White — primary text on dark */
+  --color-ink: #171616; /* Ink — text on cream/light surfaces */
+
+  --font-sans: var(--font-quicksand), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 16px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-brand);
+  color: var(--color-softwhite);
+  overscroll-behavior: none;
+}
+
+::selection {
+  background: var(--color-cream);
+  color: var(--color-ink);
+}
+
+/* Scrollbars — thin, quiet */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(244, 242, 237, 0.25) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(244, 242, 237, 0.22);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Range inputs (progress + volume) */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(244, 242, 237, 0.25);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -4px;
+  height: 12px;
+  width: 12px;
+  border-radius: 999px;
+  background: var(--color-cream);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(244, 242, 237, 0.25);
+}
+input[type="range"]::-moz-range-thumb {
+  height: 12px;
+  width: 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-cream);
+}
+
+/* Subtle pulse for the "live" jam dot */
+@keyframes groove-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.groove-pulse {
+  animation: groove-pulse 1.6s ease-in-out infinite;
+}
+
+/* Skeleton shimmer */
+@keyframes groove-shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+.groove-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(244, 242, 237, 0.06) 25%,
+    rgba(244, 242, 237, 0.14) 37%,
+    rgba(244, 242, 237, 0.06) 63%
+  );
+  background-size: 800px 100%;
+  animation: groove-shimmer 1.4s infinite linear;
+  border-radius: 8px;
+}
