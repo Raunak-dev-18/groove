@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { jams } from "@/db/schema";
+import { jamSongs, jams } from "@/db/schema";
 import { fail, handle, ok } from "@/lib/api";
 import { requireUser } from "@/lib/session";
 import { getSongById, isJamParticipant } from "@/lib/queries";
@@ -30,6 +30,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!song) return fail("Song not found", 404);
       patch.currentSongId = song.id;
       patch.positionSec = 0;
+      // the song is now playing — drop it from the shared upcoming playlist
+      await db.delete(jamSongs).where(and(eq(jamSongs.jamId, id), eq(jamSongs.songId, song.id)));
     }
     if (typeof body.isPlaying === "boolean") {
       patch.isPlaying = body.isPlaying;

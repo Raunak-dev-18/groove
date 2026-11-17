@@ -6,6 +6,7 @@ import { usePlayer } from "@/components/providers";
 import { Artwork } from "@/components/artwork";
 import { cn, formatDuration } from "@/lib/utils";
 import { prefetchSong } from "@/lib/song-cache";
+import { prefetchAudio } from "@/lib/media-cache";
 import type { SongDTO } from "@/lib/types";
 
 /** Grid card for a track/section rail. */
@@ -15,7 +16,13 @@ export function SongCard({ song, queue }: { song: SongDTO; queue?: SongDTO[] }) 
   const isPlayingThis = isCurrent && player.isPlaying;
 
   return (
-    <div className="group relative w-36 shrink-0 sm:w-44" onMouseEnter={() => prefetchSong(song.id)}>
+    <div
+      className="group relative w-36 shrink-0 sm:w-44"
+      onMouseEnter={() => {
+        prefetchSong(song.id);
+        prefetchAudio(song.audioFileId);
+      }}
+    >
       <div className="relative">
         <Artwork fileId={song.coverFileId} alt={song.title} className="aspect-square w-full" />
         <button

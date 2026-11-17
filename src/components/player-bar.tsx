@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   AudioLines,
+  Captions,
   Heart,
   Infinity as InfinityIcon,
   Radio,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Artwork } from "@/components/artwork";
+import { LyricsPanel } from "@/components/lyrics-panel";
 import { usePlayer, useToast } from "@/components/providers";
 import { api } from "@/lib/client";
 import { cn, formatDuration } from "@/lib/utils";
@@ -25,6 +27,7 @@ export function PlayerBar() {
   const player = usePlayer();
   const { toast } = useToast();
   const [dragging, setDragging] = useState<number | null>(null);
+  const [showLyrics, setShowLyrics] = useState(false);
 
   const song = player.current;
   const position = dragging ?? player.position;
@@ -151,8 +154,20 @@ export function PlayerBar() {
           </div>
         </div>
 
-        {/* Right side: autoplay, jam status + volume */}
+        {/* Right side: lyrics, autoplay, jam status + volume */}
         <div className="flex items-center justify-end gap-2 sm:w-64">
+          <button
+            type="button"
+            onClick={() => setShowLyrics(true)}
+            aria-label="Show lyrics"
+            disabled={!song}
+            className={cn(
+              "rounded-full p-1.5 transition-colors hover:text-softwhite disabled:opacity-30",
+              song?.hasLyrics ? "text-cream" : "text-midgrey",
+            )}
+          >
+            <Captions className="h-5 w-5" />
+          </button>
           <button
             type="button"
             onClick={player.toggleAutoplay}
@@ -209,6 +224,8 @@ export function PlayerBar() {
           />
         </div>
       </div>
+
+      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
 
       {/* Mobile progress line */}
       <div className="h-1 w-full bg-softwhite/10 sm:hidden">

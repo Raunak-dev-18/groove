@@ -11,6 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import type { JamStateDTO, SongDTO } from "@/lib/types";
+import { prefetchAudioWindow } from "@/lib/media-cache";
+import { getLyrics } from "@/lib/lyrics-cache";
+
+/** Songs fetched ahead of the playhead into the device cache (matches Android). */
+const PRELOAD_AHEAD = 5;
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -117,7 +122,6 @@ function PlayerProvider({ children }: { children: ReactNode }) {
 
   const jamRef = useRef<PlayerApi["jam"]>(null);
   const lastCountedRef = useRef<string | null>(null);
-  const preloadRef = useRef<HTMLAudioElement | null>(null);
   const queueRef = useRef<SongDTO[]>([]);
 
   useEffect(() => {
@@ -149,28 +153,26 @@ function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  /* Pre-load the next song in the queue: a hidden <audio preload="auto">
-     warms the browser cache so skipping tracks starts instantly. */
+  /* Device cache pipeline: fetch the playing song (instant replays) and the
+     next PRELOAD_AHEAD songs into the service-worker cache while it plays.
+     Full-file fetches flow through the SW, which stores them and serves the
+     media element's Range requests by slicing — so skips are instant. */
   useEffect(() => {
     if (jam || !current || queue.length === 0) return;
     const idx = queue.findIndex((s) => s.id === current.id);
-    if (idx < 0 || idx >= queue.length - 1) return;
-    const next = queue[idx + 1];
-    if (!next) return;
-    try {
-      if (!preloadRef.current) {
-        const p = new Audio();
-        p.preload = "auto";
-        preloadRef.current = p;
-      }
-      const url = `/api/cdn/files/${next.audioFileId}`;
-      if (preloadRef.current.src !== new URL(url, window.location.href).href) {
-        preloadRef.current.src = url;
-        preloadRef.current.load();
-      }
-    } catch {
-      /* preloading is best-effort */
-    }
+    if (idx < 0) return;
+    const window = queue.slice(idx, idx + 1 + PRELOAD_AHEAD);
+    void prefetchAudioWindow(window);
+  }, [current, queue, jam]);
+
+  /* Lyrics ride along with the song — current + 2 ahead, so opening the
+     lyrics panel is always instant (cache-first, one fetch per song ever). */
+  useEffect(() => {
+    if (!current) return;
+    void getLyrics(current.id);
+    if (jam) return;
+    const idx = queue.findIndex((s) => s.id === current.id);
+    for (const s of queue.slice(idx + 1, idx + 3)) void getLyrics(s.id);
   }, [current, queue, jam]);
 
   const ensureAudio = useCallback(() => {
@@ -315,7 +317,21 @@ function PlayerProvider({ children }: { children: ReactNode }) {
     (state: JamStateDTO) => {
       const a = ensureAudio();
       const j = jamRef.current;
-      if (j?.isHost) return; // host is the source of truth — never self-correct
+
+      // host: mirror additions to the shared jam playlist into the local
+      // queue so auto-advance flows through them
+      if (j?.isHost) {
+        const existing = new Set(queueRef.current.map((q) => q.id));
+        const missing = state.queue
+          .map((q) => q.song)
+          .filter((s) => !existing.has(s.id));
+        if (missing.length) {
+          const nq = [...queueRef.current, ...missing];
+          queueRef.current = nq;
+          setQueue(nq);
+        }
+        return;
+      }
 
       const song = state.currentSong;
       if (!song) {
@@ -378,7 +394,11 @@ function PlayerProvider({ children }: { children: ReactNode }) {
       if (!jamRef.current) {
         // normal queue mode → auto-next
         next();
-      } else if (!jamRef.current.isHost) {
+      } else if (jamRef.current.isHost) {
+        // host: the local queue mirrors the shared jam playlist — keep it
+        // flowing so participants ride along
+        next();
+      } else {
         setIsPlaying(false); // participant: wait for the host's next pick
       }
     };

@@ -31,6 +31,16 @@ export function SwRegister() {
       await navigator.serviceWorker.register("/sw.js").catch(() => {
         /* caching is optional */
       });
+      // ask the browser to treat our audio cache as persistent — without this,
+      // storage pressure (or the browser's own eviction heuristics) can wipe
+      // cached songs even when quota is fine
+      if (navigator.storage?.persist) {
+        try {
+          await navigator.storage.persist();
+        } catch {
+          /* best-effort */
+        }
+      }
     })();
   }, []);
   return null;

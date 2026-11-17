@@ -98,6 +98,11 @@ export const songs = pgTable(
     durationSec: doublePrecision("duration_sec").notNull().default(0),
     genre: text("genre").notNull().default(""),
     plays: integer("plays").notNull().default(0),
+    // Lyrics: LRC (time-synced) when lyricsSynced, otherwise plain text.
+    // source: 'admin' (pasted/uploaded) | 'lrclib' (auto-fetched) | 'miss' (checked, none found)
+    lyrics: text("lyrics"),
+    lyricsSynced: boolean("lyrics_synced").notNull().default(false),
+    lyricsSource: text("lyrics_source"),
     // Nullable + ON DELETE SET NULL: deleting an artist unbinds their songs
     // but never deletes the music itself.
     primaryArtistId: uuid("primary_artist_id")
@@ -199,6 +204,29 @@ export const jamParticipants = pgTable(
     joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique("jam_participants_uq").on(t.jamId, t.userId)],
+);
+
+/**
+ * Shared jam playlist — participants tap "+" to add songs; the host plays
+ * through it. Rows are removed as the host plays them (queue = upcoming).
+ */
+export const jamSongs = pgTable(
+  "jam_songs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jamId: uuid("jam_id")
+      .notNull()
+      .references(() => jams.id, { onDelete: "cascade" }),
+    songId: uuid("song_id")
+      .notNull()
+      .references(() => songs.id, { onDelete: "cascade" }),
+    addedById: text("added_by_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("jam_songs_jam_idx").on(t.jamId, t.position)],
 );
 
 export const jamMessages = pgTable(

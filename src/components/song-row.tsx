@@ -9,6 +9,7 @@ import { cn, formatCount, formatDuration } from "@/lib/utils";
 import type { SongDTO } from "@/lib/types";
 import { api } from "@/lib/client";
 import { prefetchSong } from "@/lib/song-cache";
+import { prefetchAudio } from "@/lib/media-cache";
 import { useState } from "react";
 
 /** One track row in a list — click to play, heart to like. */
@@ -59,7 +60,10 @@ export function SongRow({
         "group flex items-center gap-3 rounded-2xl px-2 py-2 transition-colors hover:bg-softwhite/5",
         isCurrent && "bg-softwhite/8",
       )}
-      onMouseEnter={() => prefetchSong(song.id)}
+      onMouseEnter={() => {
+        prefetchSong(song.id);
+        prefetchAudio(song.audioFileId);
+      }}
     >
       <button
         type="button"

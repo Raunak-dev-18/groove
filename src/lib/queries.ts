@@ -8,6 +8,7 @@ import {
   follows,
   jamMessages,
   jamParticipants,
+  jamSongs,
   jams,
   likes,
   plays,
@@ -16,7 +17,7 @@ import {
   user,
 } from "@/db/schema";
 import { cached } from "@/lib/server-cache";
-import type { ArtistDTO, SongDTO } from "@/lib/types";
+import type { ArtistDTO, JamQueueItem, SongDTO } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
 /* Songs                                                               */
@@ -110,6 +111,7 @@ export async function listSongs(opts: ListSongsOpts): Promise<{ rows: SongDTO[];
         durationSec: songs.durationSec,
         genre: songs.genre,
         plays: songs.plays,
+        hasLyrics: sql<boolean>`${songs.lyrics} is not null and ${songs.lyrics} <> ''`,
         createdAt: songs.createdAt,
         // artist may be unbound (deleted artist → SET NULL) — songs stay visible
         artistId: sql<string>`coalesce(${artists.id}, '00000000-0000-0000-0000-000000000000'::uuid)`,
@@ -156,6 +158,7 @@ export async function listSongs(opts: ListSongsOpts): Promise<{ rows: SongDTO[];
     durationSec: r.durationSec,
     genre: r.genre,
     plays: r.plays,
+    hasLyrics: Boolean(r.hasLyrics),
     createdAt: r.createdAt.toISOString(),
     primaryArtist: {
       id: r.artistId,
@@ -413,6 +416,7 @@ export async function recentPlaysRaw(userId: string, limit = 10): Promise<SongDT
       durationSec: songs.durationSec,
       genre: songs.genre,
       plays: songs.plays,
+      hasLyrics: sql<boolean>`${songs.lyrics} is not null and ${songs.lyrics} <> ''`,
       createdAt: songs.createdAt,
       artistId: artists.id,
       artistName: artists.name,
@@ -426,6 +430,7 @@ export async function recentPlaysRaw(userId: string, limit = 10): Promise<SongDT
     .groupBy(
       songs.id, songs.title, songs.description, songs.audioFileId, songs.coverFileId,
       songs.durationSec, songs.genre, songs.plays, songs.createdAt,
+      songs.lyrics,
       artists.id, artists.name, artists.avatarFileId, artists.country,
     )
     .orderBy(desc(sql`max(${plays.playedAt})`))
@@ -439,6 +444,7 @@ export async function recentPlaysRaw(userId: string, limit = 10): Promise<SongDT
     durationSec: r.durationSec,
     genre: r.genre,
     plays: r.plays,
+    hasLyrics: Boolean(r.hasLyrics),
     createdAt: r.createdAt.toISOString(),
     primaryArtist: { id: r.artistId, name: r.artistName, avatarFileId: r.artistAvatar, country: r.artistCountry },
     artists: [{ id: r.artistId, name: r.artistName, role: "primary" as const }],
@@ -495,6 +501,52 @@ export async function isJamParticipant(jamId: string, userId: string): Promise<b
     .from(jamParticipants)
     .where(and(eq(jamParticipants.jamId, jamId), eq(jamParticipants.userId, userId)));
   return r.length > 0;
+}
+
+/** The shared jam playlist (upcoming songs), in play order. */
+export async function getJamQueue(jamId: string, currentUserId?: string | null): Promise<JamQueueItem[]> {
+  const rows = await db
+    .select({
+      id: jamSongs.id,
+      position: jamSongs.position,
+      addedById: jamSongs.addedById,
+      addedByName: user.name,
+      addedAt: jamSongs.createdAt,
+      songId: jamSongs.songId,
+    })
+    .from(jamSongs)
+    .innerJoin(user, eq(user.id, jamSongs.addedById))
+    .where(eq(jamSongs.jamId, jamId))
+    .orderBy(asc(jamSongs.position))
+    .limit(200);
+  if (rows.length === 0) return [];
+
+  const ids = [...new Set(rows.map((r) => r.songId))];
+  const { rows: songs } = await listSongs({ ids, limit: 200, currentUserId });
+  const byId = new Map(songs.map((s) => [s.id, s]));
+  return rows
+    .map((r) => {
+      const song = byId.get(r.songId);
+      if (!song) return null;
+      return {
+        id: r.id,
+        position: r.position,
+        addedById: r.addedById,
+        addedByName: r.addedByName,
+        addedAt: r.addedAt.toISOString(),
+        song,
+      } satisfies JamQueueItem;
+    })
+    .filter((x): x is JamQueueItem => x !== null);
+}
+
+/** Append a song to the end of the jam playlist. */
+export async function addJamSong(jamId: string, songId: string, userId: string): Promise<void> {
+  const [{ maxPos }] = await db
+    .select({ maxPos: sql<number>`coalesce(max(${jamSongs.position}), 0)::int` })
+    .from(jamSongs)
+    .where(eq(jamSongs.jamId, jamId));
+  await db.insert(jamSongs).values({ jamId, songId, addedById: userId, position: maxPos + 1 });
 }
 
 export async function getJamMessages(jamId: string, after?: string | null, limit = 50) {

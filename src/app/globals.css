@@ -98,6 +98,18 @@ input[type="range"]::-moz-range-thumb {
   animation: groove-pulse 1.6s ease-in-out infinite;
 }
 
+/* Lyrics panel entrance — fade + rise */
+@keyframes lyrics-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Skeleton shimmer */
 @keyframes groove-shimmer {
   0% {

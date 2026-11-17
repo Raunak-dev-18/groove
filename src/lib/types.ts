@@ -26,6 +26,8 @@ export interface SongDTO {
   durationSec: number;
   genre: string;
   plays: number;
+  /** true when this song has stored (or auto-fetched) lyrics */
+  hasLyrics: boolean;
   createdAt: string;
   primaryArtist: { id: string; name: string; avatarFileId: string | null; country: string | null };
   artists: ArtistOnSong[];
@@ -59,6 +61,15 @@ export interface ParticipantDTO {
   isHost: boolean;
 }
 
+export interface JamQueueItem {
+  id: string; // jam_songs row id
+  position: number;
+  addedById: string;
+  addedByName: string;
+  addedAt: string;
+  song: SongDTO;
+}
+
 export interface JamStateDTO {
   id: string;
   name: string;
@@ -71,6 +82,8 @@ export interface JamStateDTO {
   updatedAt: string;
   serverTime: string;
   currentSong: SongDTO | null;
+  /** Upcoming shared playlist — participants add via "+", host plays through it. */
+  queue: JamQueueItem[];
   host: { id: string; name: string; image: string | null };
   participants: ParticipantDTO[];
 }

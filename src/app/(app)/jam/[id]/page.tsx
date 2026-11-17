@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Copy, LogOut, Play, Search, Send, Users } from "lucide-react";
+import { ArrowLeft, Copy, ListMusic, LogOut, Play, Plus, Search, Send, Trash2, Users } from "lucide-react";
 import { api } from "@/lib/client";
 import { usePlayer, useToast } from "@/components/providers";
 import { Avatar } from "@/components/avatar";
 import { Artwork } from "@/components/artwork";
-import { SongRow } from "@/components/song-row";
 import { Modal } from "@/components/modal";
 import { Spinner, EmptyState } from "@/components/skeletons";
 import { cn, formatDuration } from "@/lib/utils";
@@ -25,7 +24,7 @@ export default function JamRoomPage() {
   const [messages, setMessages] = useState<JamMessageDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<null | "play" | "queue">(null);
   const [searchResults, setSearchResults] = useState<SongDTO[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -98,10 +97,46 @@ export default function JamRoomPage() {
   };
 
   const pickSong = (song: SongDTO) => {
-    player.playSong(song, [song]);
-    setPicking(false);
+    if (picking === "queue") {
+      void addToJamPlaylist(song);
+      return;
+    }
+    // host plays immediately, with the jam playlist as the follow-up queue
+    player.playSong(song, [song, ...(state?.queue ?? []).map((q) => q.song)]);
+    setPicking(null);
     setSearchResults([]);
     setSearchQuery("");
+  };
+
+  const addToJamPlaylist = async (song: SongDTO) => {
+    try {
+      const res = await api<{ queue: JamStateDTO["queue"] }>(`/api/jams/${id}/songs`, {
+        method: "POST",
+        body: JSON.stringify({ songId: song.id }),
+      });
+      if (res.queue) setState((s) => (s ? { ...s, queue: res.queue } : s));
+      toast(`Added “${song.title}” to the jam playlist`, "success");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+
+  const removeFromJamPlaylist = async (itemId: string) => {
+    try {
+      const res = await api<{ queue: JamStateDTO["queue"] }>(`/api/jams/${id}/songs`, {
+        method: "DELETE",
+        body: JSON.stringify({ itemId }),
+      });
+      if (res.queue) setState((s) => (s ? { ...s, queue: res.queue } : s));
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+
+  /** Host: play a jam-playlist song right now (it leaves the queue server-side). */
+  const playFromJamPlaylist = (song: SongDTO) => {
+    const rest = (state?.queue ?? []).filter((q) => q.song.id !== song.id).map((q) => q.song);
+    player.playSong(song, [song, ...rest]);
   };
 
   const searchSongs = async (q: string) => {
@@ -210,7 +245,7 @@ export default function JamRoomPage() {
                   <p className="truncate text-mist">{song.artists.map((a) => a.name).join(", ")}</p>
                   {isHost ? (
                     <button
-                      onClick={() => setPicking(true)}
+                      onClick={() => setPicking("play")}
                       className="mt-3 inline-flex w-fit items-center gap-2 rounded-full bg-cream px-5 py-2.5 font-bold text-ink transition-transform hover:scale-105"
                     >
                       <Search className="h-4 w-4" /> Pick next song
@@ -231,7 +266,7 @@ export default function JamRoomPage() {
                   </p>
                   {isHost && (
                     <button
-                      onClick={() => setPicking(true)}
+                      onClick={() => setPicking("play")}
                       className="mt-3 inline-flex w-fit items-center gap-2 rounded-full bg-cream px-5 py-2.5 font-bold text-ink transition-transform hover:scale-105"
                     >
                       <Play className="h-4 w-4" fill="currentColor" /> Pick a song
@@ -241,6 +276,79 @@ export default function JamRoomPage() {
               )}
             </div>
           </div>
+
+          {/* jam playlist — everyone adds, the host plays through it */}
+          <section className="rounded-3xl border border-ink/40 bg-panel p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="flex items-center gap-2 text-lg font-bold">
+                <ListMusic className="h-5 w-5 text-cream" /> Jam playlist
+                {state.queue.length > 0 && (
+                  <span className="text-sm font-medium text-midgrey">{state.queue.length} up next</span>
+                )}
+              </h3>
+              <button
+                onClick={() => {
+                  setSearchResults([]);
+                  setSearchQuery("");
+                  setPicking("queue");
+                }}
+                className="flex items-center gap-1.5 rounded-full bg-cream px-4 py-2 text-sm font-bold text-ink transition-transform hover:scale-105"
+              >
+                <Plus className="h-4 w-4" /> Add song
+              </button>
+            </div>
+
+            {state.queue.length === 0 ? (
+              <p className="mt-4 text-sm text-midgrey">
+                Nothing queued yet — hit <span className="font-bold text-softwhite">+ Add song</span> and
+                everyone will hear it when the host plays the playlist.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-1">
+                {state.queue.map((item) => (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "group flex items-center gap-3 rounded-2xl px-2 py-2 transition-colors",
+                      isHost && "cursor-pointer hover:bg-softwhite/5",
+                    )}
+                    onClick={() => isHost && playFromJamPlaylist(item.song)}
+                  >
+                    <Artwork
+                      fileId={item.song.coverFileId}
+                      alt={item.song.title}
+                      className="h-11 w-11 shrink-0"
+                      rounded="rounded-xl"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{item.song.title}</p>
+                      <p className="truncate text-xs text-midgrey">
+                        {item.song.artists.map((a) => a.name).join(", ")} · added by{" "}
+                        <span className="font-semibold text-mist">{item.addedByName}</span>
+                      </p>
+                    </div>
+                    {isHost && (
+                      <span className="hidden items-center gap-1 rounded-full bg-softwhite/10 px-3 py-1 text-[11px] font-bold text-softwhite group-hover:flex">
+                        <Play className="h-3 w-3" fill="currentColor" /> Play
+                      </span>
+                    )}
+                    {(isHost || item.addedById === myId) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void removeFromJamPlaylist(item.id);
+                        }}
+                        aria-label="Remove from jam playlist"
+                        className="rounded-full p-2 text-midgrey hover:bg-red-400/10 hover:text-red-300"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* participants */}
           <section className="rounded-3xl border border-ink/40 bg-panel p-6">
@@ -322,7 +430,12 @@ export default function JamRoomPage() {
       </div>
 
       {/* song picker */}
-      <Modal open={picking} onClose={() => setPicking(false)} title="Pick a song for the Jam" wide>
+      <Modal
+        open={picking !== null}
+        onClose={() => setPicking(null)}
+        title={picking === "queue" ? "Add to the jam playlist" : "Pick a song for the Jam"}
+        wide
+      >
         <div className="space-y-4">
           <input
             value={searchQuery}
@@ -333,7 +446,26 @@ export default function JamRoomPage() {
           />
           <div className="max-h-96 space-y-1 overflow-y-auto">
             {searchResults.map((s) => (
-              <SongRow key={s.id} song={s} queue={searchResults} compact onLike={() => {}} />
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => pickSong(s)}
+                className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-softwhite/5"
+              >
+                <Artwork fileId={s.coverFileId} alt={s.title} className="h-11 w-11" rounded="rounded-xl" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{s.title}</p>
+                  <p className="truncate text-xs text-midgrey">{s.artists.map((a) => a.name).join(", ")}</p>
+                </div>
+                <span
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                    picking === "queue" ? "bg-cream text-ink" : "bg-softwhite/10 text-softwhite",
+                  )}
+                >
+                  {picking === "queue" ? <Plus className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" fill="currentColor" />}
+                </span>
+              </button>
             ))}
             {searchQuery && searchResults.length === 0 && (
               <p className="py-6 text-center text-sm text-midgrey">No songs found.</p>

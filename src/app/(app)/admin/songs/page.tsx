@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Music4, Pencil, Plus, Trash2, Upload, FolderOpen, CheckCircle2, AlertTriangle, Loader2, X } from "lucide-react";
+import { Music4, Pencil, Plus, Trash2, Upload, FolderOpen, CheckCircle2, AlertTriangle, Loader2, X, Captions, Wand2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { api, uploadFile } from "@/lib/client";
 import { useToast } from "@/components/providers";
@@ -13,6 +13,7 @@ import { Spinner, EmptyState, SkeletonRowList } from "@/components/skeletons";
 import { formatCount, formatDuration } from "@/lib/utils";
 import { autoDescription, parseSongFilename } from "@/lib/filename";
 import { songDuplicateKey } from "@/lib/duplicate";
+import { dropLyrics } from "@/lib/lyrics-cache";
 import type { ArtistDTO, SongDTO } from "@/lib/types";
 
 // lazy-loaded chunk — only admins ever need the upload machinery
@@ -93,6 +94,9 @@ export default function AdminSongsPage() {
 
   // bulk upload
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [lyricsFor, setLyricsFor] = useState<SongDTO | null>(null);
+  const [lyricsText, setLyricsText] = useState("");
+  const [lyricsBusy, setLyricsBusy] = useState(false);
   const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -159,6 +163,60 @@ export default function AdminSongsPage() {
   };
 
   const NIL_ARTIST_ID = "00000000-0000-0000-0000-000000000000";
+
+  /* ── Lyrics editor ── */
+
+  const openLyrics = async (s: SongDTO) => {
+    setLyricsFor(s);
+    setLyricsText("");
+    try {
+      const r = await api<{ lyrics: string | null }>(`/api/songs/${s.id}/lyrics`);
+      setLyricsText(r?.lyrics ?? "");
+    } catch {
+      /* open blank — maybe the fetch failed but admin wants to type anyway */
+    }
+  };
+
+  const saveLyrics = async () => {
+    if (!lyricsFor) return;
+    setLyricsBusy(true);
+    try {
+      await api(`/api/songs/${lyricsFor.id}/lyrics`, {
+        method: "PUT",
+        body: JSON.stringify({ lyrics: lyricsText }),
+      });
+      dropLyrics(lyricsFor.id);
+      toast(lyricsText.trim() ? "Lyrics saved" : "Lyrics cleared");
+      setLyricsFor(null);
+      load();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setLyricsBusy(false);
+    }
+  };
+
+  /** Pull lyrics from LRCLIB into the editor (force re-check even after a miss). */
+  const pullLyrics = async () => {
+    if (!lyricsFor) return;
+    setLyricsBusy(true);
+    try {
+      const r = await api<{ lyrics: string | null; synced: boolean }>(
+        `/api/songs/${lyricsFor.id}/lyrics?refresh=1`,
+      );
+      if (r?.lyrics) {
+        setLyricsText(r.lyrics);
+        dropLyrics(lyricsFor.id);
+        toast(r.synced ? "Fetched synced lyrics from LRCLIB" : "Fetched plain lyrics from LRCLIB");
+      } else {
+        toast("Nothing found on LRCLIB for this song", "error");
+      }
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setLyricsBusy(false);
+    }
+  };
 
   const openEdit = (s: SongDTO) => {
     reset();
@@ -536,6 +594,17 @@ export default function AdminSongsPage() {
               </span>
               {canEdit && (
                 <button
+                  onClick={() => void openLyrics(s)}
+                  aria-label="Edit lyrics"
+                  className={`rounded-full p-2 hover:bg-softwhite/10 hover:text-softwhite ${
+                    s.hasLyrics ? "text-cream" : "text-midgrey"
+                  }`}
+                >
+                  <Captions className="h-4 w-4" />
+                </button>
+              )}
+              {canEdit && (
+                <button
                   onClick={() => openEdit(s)}
                   aria-label="Edit song"
                   className="rounded-full p-2 text-midgrey hover:bg-softwhite/10 hover:text-softwhite"
@@ -789,6 +858,60 @@ export default function AdminSongsPage() {
                 ? "All queued songs are duplicates"
                 : `Upload ${bulkUploadable} song(s)${bulkDupes ? ` — skip ${bulkDupes} duplicate${bulkDupes === 1 ? "" : "s"}` : ""}`}
           </button>
+        </div>
+      </Modal>
+
+      {/* Lyrics editor */}
+      <Modal
+        open={!!lyricsFor}
+        onClose={() => (lyricsBusy ? toast("Saving…", "info") : setLyricsFor(null))}
+        title={lyricsFor ? `Lyrics — “${lyricsFor.title}”` : "Lyrics"}
+        wide
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-midgrey">
+              Paste LRC for synced lyrics — one <code className="text-mist">[mm:ss.xx]</code> stamp per line — or plain
+              text. Synced lines highlight and follow playback.
+            </p>
+            <button
+              type="button"
+              onClick={() => void pullLyrics()}
+              disabled={lyricsBusy}
+              className="flex items-center gap-1.5 rounded-full border border-softwhite/25 px-3 py-1.5 text-xs font-bold text-mist hover:bg-softwhite/10 disabled:opacity-40"
+            >
+              {lyricsBusy ? <Spinner /> : <Wand2 className="h-3.5 w-3.5" />} Auto-fetch from LRCLIB
+            </button>
+          </div>
+          <textarea
+            value={lyricsText}
+            onChange={(e) => setLyricsText(e.target.value)}
+            rows={16}
+            spellCheck={false}
+            placeholder={"[00:12.30]First line…\n[00:15.10]Second line…"}
+            className="w-full resize-y rounded-2xl border border-softwhite/10 bg-ink/60 p-4 font-mono text-sm text-softwhite outline-none placeholder:text-midgrey/60 focus:border-softwhite/30"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setLyricsText("");
+                void saveLyrics();
+              }}
+              disabled={lyricsBusy || !lyricsText.trim()}
+              className="rounded-full px-4 py-2 text-sm font-bold text-midgrey hover:bg-softwhite/10 disabled:opacity-40"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveLyrics()}
+              disabled={lyricsBusy}
+              className="flex items-center gap-2 rounded-full bg-cream px-5 py-2 text-sm font-bold text-ink hover:opacity-90 disabled:opacity-40"
+            >
+              {lyricsBusy ? <Spinner /> : null} Save lyrics
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

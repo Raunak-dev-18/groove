@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { jamParticipants, jams, user } from "@/db/schema";
 import { fail, handle, ok } from "@/lib/api";
 import { requireUser } from "@/lib/session";
-import { getJamMessages, getSongById, isJamParticipant } from "@/lib/queries";
+import { getJamMessages, getJamQueue, getSongById, isJamParticipant } from "@/lib/queries";
 import type { JamStateDTO } from "@/lib/types";
 
 /**
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const [jam] = await db.select().from(jams).where(eq(jams.id, id)).limit(1);
     if (!jam || jam.endedAt) return fail("Jam not found", 404);
 
-    const [participants, host, messages, currentSong] = await Promise.all([
+    const [participants, host, messages, currentSong, queue] = await Promise.all([
       db
         .select({
           id: user.id,
@@ -46,6 +46,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       jam.currentSongId
         ? getSongById(jam.currentSongId, session.user.id)
         : Promise.resolve(null),
+      getJamQueue(id, session.user.id),
     ]);
 
     const now = Date.now();
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       updatedAt: jam.updatedAt.toISOString(),
       serverTime: new Date(now).toISOString(),
       currentSong,
+      queue,
       host: host[0] ?? { id: jam.hostId, name: "Host", image: null },
       participants: participants.map((p) => ({
         id: p.id,
